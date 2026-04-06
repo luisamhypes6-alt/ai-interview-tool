@@ -23,17 +23,18 @@ const User = {
     return docToObj(doc);
   },
 
+  // No .where() — fetch all and filter client-side to avoid index requirement
   async findByUsername(username) {
     const db = getDB();
-    const snap = await db.collection(COL)
-      .where('username', '==', username.toLowerCase().trim())
-      .get();
-    if (snap.empty) return null;
-    return docToObj(snap.docs[0]);
+    const snap = await db.collection(COL).get();
+    const target = username.toLowerCase().trim();
+    const match = snap.docs.find(d => d.data().username === target);
+    return match ? docToObj(match) : null;
   },
 
   async create({ username, displayName, isAdmin = false, password }) {
     const db = getDB();
+    // Check existing without .where()
     const existing = await User.findByUsername(username);
     if (existing) throw new Error('Username already exists');
     const passwordHash = await bcrypt.hash(password || DEFAULT_PASSWORD, 10);
@@ -76,12 +77,14 @@ const User = {
     return bcrypt.compare(password, user.passwordHash);
   },
 
+  // No .where() — fetch all and check client-side
   async ensureAdminExists() {
     const { isConnected } = require('../utils/firebase');
-    if (!isConnected()) return; // skip if DB not ready
+    if (!isConnected()) return;
     const db = getDB();
-    const snap = await db.collection(COL).where('isAdmin', '==', true).get();
-    if (!snap.empty) return;
+    const snap = await db.collection(COL).get();
+    const hasAdmin = snap.docs.some(d => d.data().isAdmin === true);
+    if (hasAdmin) return;
     await User.create({
       username:    'admin',
       displayName: 'Admin',

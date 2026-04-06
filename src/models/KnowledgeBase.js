@@ -5,29 +5,22 @@ const now = () => new Date().toISOString();
 const docToObj = (doc) => ({ id: doc.id, ...doc.data() });
 
 const KnowledgeBase = {
-  // Get all items for a specific user
+  // Get all items for a specific user — client-side filter, no index needed
   async findByUser(ownerId) {
     const db = getDB();
-    try {
-      const snap = await db.collection(COL)
-        .where('ownerId', '==', ownerId)
-        .orderBy('createdAt', 'desc')
-        .get();
-      return snap.docs.map(docToObj);
-    } catch (e) {
-      // Fallback if index not ready — filter client-side
-      const snap = await db.collection(COL).get();
-      return snap.docs.map(docToObj)
-        .filter(d => d.ownerId === ownerId)
-        .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
-    }
+    const snap = await db.collection(COL).get();
+    return snap.docs
+      .map(docToObj)
+      .filter(d => d.ownerId === ownerId)
+      .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
   },
 
   // Get all items across all users (admin only)
   async findAll() {
     const db = getDB();
     const snap = await db.collection(COL).get();
-    return snap.docs.map(docToObj)
+    return snap.docs
+      .map(docToObj)
       .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
   },
 
