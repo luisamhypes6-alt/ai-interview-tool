@@ -445,10 +445,17 @@ function KnowledgeSection({ dbConnected }) {
 // ── Change Password (for self) ────────────────────────────────────────────────
 function AccountSection() {
   const { user } = useAuth();
-  const [form, setForm]     = useState({ currentPassword: '', newPassword: '', confirm: '' });
-  const [saving, setSaving] = useState(false);
+  const [form, setForm]         = useState({ currentPassword: '', newPassword: '', confirm: '' });
+  const [saving, setSaving]     = useState(false);
+  const [apiKey, setApiKey]     = useState('');
+  const [hasKey, setHasKey]     = useState(false);
+  const [savingKey, setSavingKey] = useState(false);
 
-  const submit = async () => {
+  useEffect(() => {
+    settingsApi.getAll().then(d => setHasKey(!!d.userOpenAIKey)).catch(() => {});
+  }, []);
+
+  const submitPassword = async () => {
     if (form.newPassword !== form.confirm) return toast.error('Passwords do not match');
     setSaving(true);
     try {
@@ -460,28 +467,84 @@ function AccountSection() {
     finally { setSaving(false); }
   };
 
+  const saveApiKey = async () => {
+    if (!apiKey.trim()) return;
+    setSavingKey(true);
+    try {
+      await settingsApi.saveOpenAIKey(apiKey.trim());
+      setHasKey(true);
+      setApiKey('');
+      toast.success('Your OpenAI API key saved');
+    } catch (e) { toast.error(e.message); }
+    finally { setSavingKey(false); }
+  };
+
+  const removeApiKey = async () => {
+    if (!window.confirm('Remove your OpenAI API key?')) return;
+    try {
+      await settingsApi.deleteOpenAIKey();
+      setHasKey(false);
+      toast.success('API key removed');
+    } catch (e) { toast.error(e.message); }
+  };
+
   return (
-    <div className="card mt-16">
-      <div className="card-title">Account</div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 20, padding: '12px 14px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
-        <div style={{ width: 42, height: 42, borderRadius: '50%', background: user?.isAdmin ? 'rgba(108,99,255,0.15)' : 'var(--bg-card)', border: `2px solid ${user?.isAdmin ? 'var(--accent)' : 'var(--border)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 16, color: user?.isAdmin ? 'var(--accent)' : 'var(--text-muted)' }}>
-          {(user?.displayName || user?.username || '?').charAt(0).toUpperCase()}
+    <>
+      <div className="card mt-16">
+        <div className="card-title">Account</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 20, padding: '12px 14px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
+          <div style={{ width: 42, height: 42, borderRadius: '50%', background: user?.isAdmin ? 'rgba(108,99,255,0.15)' : 'var(--bg-card)', border: `2px solid ${user?.isAdmin ? 'var(--accent)' : 'var(--border)'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 16, color: user?.isAdmin ? 'var(--accent)' : 'var(--text-muted)' }}>
+            {(user?.displayName || user?.username || '?').charAt(0).toUpperCase()}
+          </div>
+          <div>
+            <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--text-primary)' }}>{user?.displayName || user?.username}</div>
+            <div style={{ fontSize: 11, color: user?.isAdmin ? 'var(--accent)' : 'var(--text-muted)', fontFamily: 'DM Mono, monospace' }}>@{user?.username} · {user?.isAdmin ? 'Administrator' : 'Hiring Manager'}</div>
+          </div>
         </div>
-        <div>
-          <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--text-primary)' }}>{user?.displayName || user?.username}</div>
-          <div style={{ fontSize: 11, color: user?.isAdmin ? 'var(--accent)' : 'var(--text-muted)', fontFamily: 'DM Mono, monospace' }}>@{user?.username} · {user?.isAdmin ? 'Administrator' : 'Hiring Manager'}</div>
+        <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--text-primary)', marginBottom: 14 }}>Change Password</div>
+        <div className="form-group"><label className="form-label">Current Password</label><input className="form-input" type="password" placeholder="Current password" value={form.currentPassword} onChange={e => setForm(p => ({ ...p, currentPassword: e.target.value }))} /></div>
+        <div className="grid-2">
+          <div className="form-group"><label className="form-label">New Password</label><input className="form-input" type="password" placeholder="New password" value={form.newPassword} onChange={e => setForm(p => ({ ...p, newPassword: e.target.value }))} /></div>
+          <div className="form-group"><label className="form-label">Confirm Password</label><input className="form-input" type="password" placeholder="Repeat new password" value={form.confirm} onChange={e => setForm(p => ({ ...p, confirm: e.target.value }))} /></div>
+        </div>
+        <button className="btn btn-primary" onClick={submitPassword} disabled={saving}>
+          {saving ? <><span className="spinner" style={{ width: 14, height: 14 }} /> Saving...</> : '🔑 Change Password'}
+        </button>
+      </div>
+
+      {/* OpenAI API Key — per user */}
+      <div className="card mt-16">
+        <div className="card-title">OpenAI API Key</div>
+        <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 16 }}>
+          Add your own OpenAI API key. All AI features (scenario generation, conversations, outreach) will use your key.
+          Each user has their own key — it is stored securely and never shared.
+        </p>
+        {hasKey && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: 'rgba(0,212,170,0.06)', border: '1px solid rgba(0,212,170,0.2)', borderRadius: 'var(--radius-sm)', marginBottom: 14 }}>
+            <span style={{ color: 'var(--success)', fontSize: 16 }}>✓</span>
+            <span style={{ fontSize: 13, color: 'var(--success)', flex: 1 }}>Your OpenAI API key is configured</span>
+            <button className="btn btn-danger btn-sm" onClick={removeApiKey}>Remove</button>
+          </div>
+        )}
+        <div className="flex gap-8">
+          <input
+            className="form-input"
+            type="password"
+            placeholder={hasKey ? 'Enter new key to replace current one' : 'sk-proj-...'}
+            value={apiKey}
+            onChange={e => setApiKey(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && saveApiKey()}
+            style={{ flex: 1 }}
+          />
+          <button className="btn btn-primary" onClick={saveApiKey} disabled={savingKey || !apiKey.trim()}>
+            {savingKey ? <span className="spinner" style={{ width: 14, height: 14 }} /> : 'Save Key'}
+          </button>
+        </div>
+        <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-muted)' }}>
+          Get your key at <a href="https://platform.openai.com/api-keys" target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>platform.openai.com/api-keys</a>
         </div>
       </div>
-      <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--text-primary)', marginBottom: 14 }}>Change Password</div>
-      <div className="form-group"><label className="form-label">Current Password</label><input className="form-input" type="password" placeholder="Current password" value={form.currentPassword} onChange={e => setForm(p => ({ ...p, currentPassword: e.target.value }))} /></div>
-      <div className="grid-2">
-        <div className="form-group"><label className="form-label">New Password</label><input className="form-input" type="password" placeholder="New password" value={form.newPassword} onChange={e => setForm(p => ({ ...p, newPassword: e.target.value }))} /></div>
-        <div className="form-group"><label className="form-label">Confirm Password</label><input className="form-input" type="password" placeholder="Repeat new password" value={form.confirm} onChange={e => setForm(p => ({ ...p, confirm: e.target.value }))} /></div>
-      </div>
-      <button className="btn btn-primary" onClick={submit} disabled={saving}>
-        {saving ? <><span className="spinner" style={{ width: 14, height: 14 }} /> Saving...</> : '🔑 Change Password'}
-      </button>
-    </div>
+    </>
   );
 }
 

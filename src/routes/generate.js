@@ -61,9 +61,9 @@ async function getRecruiterContext(recruiterId) {
 router.post('/scenario', async (req, res) => {
   try {
     const { candidateId, role, goal, tone = 'professional', customInstructions, recruiterId } = req.body;
-    const openai = await getOpenAIClient();
-    const knowledgeContext = await getKnowledgeContext();
-    const globalInstructions = await getCustomInstructions();
+    const openai = await getOpenAIClient(req.user.id);
+    const knowledgeContext = await getKnowledgeContext(req.user.id);
+    const globalInstructions = await getCustomInstructions(req.user.id);
     const recruiterContext = await getRecruiterContext(recruiterId);
 
     let candidateContext = '';
@@ -100,9 +100,9 @@ router.post('/scenario', async (req, res) => {
 router.post('/outreach', async (req, res) => {
   try {
     const { candidateId, role, messageType = 'outreach', tone = 'professional', goal, customInstructions, recruiterId } = req.body;
-    const openai = await getOpenAIClient();
-    const knowledgeContext = await getKnowledgeContext();
-    const globalInstructions = await getCustomInstructions();
+    const openai = await getOpenAIClient(req.user.id);
+    const knowledgeContext = await getKnowledgeContext(req.user.id);
+    const globalInstructions = await getCustomInstructions(req.user.id);
     const recruiterContext = await getRecruiterContext(recruiterId);
 
     let candidateContext = '';
@@ -150,10 +150,10 @@ router.post('/conversation', async (req, res) => {
       history = [], recruiterId, customInstructions, imageBase64, imageMimeType,
     } = req.body;
 
-    const openai = await getOpenAIClient();
-    const knowledgeContext   = await getKnowledgeContext();
-    const globalInstructions = await getCustomInstructions();
-    const companyScenario    = await getCompanyScenario();
+    const openai = await getOpenAIClient(req.user.id);
+    const knowledgeContext   = await getKnowledgeContext(req.user.id);
+    const globalInstructions = await getCustomInstructions(req.user.id);
+    const companyScenario    = await getCompanyScenario(req.user.id);
     const recruiterContext   = await getRecruiterContext(recruiterId);
 
     let candidateContext = '';
@@ -270,7 +270,7 @@ module.exports = router;
 router.post('/recommend-role', async (req, res) => {
   try {
     const { resumeText, candidateId } = req.body;
-    const openai = await getOpenAIClient();
+    const openai = await getOpenAIClient(req.user.id);
 
     // Get available roles from settings or defaults
     let roleOptions = Object.values(DEFAULT_ROLES);
