@@ -189,7 +189,9 @@ function OutreachTab({ candidate }) {
     goal: '', customInstructions: '', recruiterId: candidate.recruiterId || '',
   });
   const [message,     setMessage]     = useState('');
-  const [history,     setHistory]     = useState(candidate.outreachMessages || []);
+  const [history,     setHistory]     = useState(
+    (candidate.outreachMessages || []).map((m, i) => ({ ...m, _origIdx: i }))
+  );
   const [loading,     setLoading]     = useState(false);
   const [showHistory, setShowHistory] = useState(history.length > 0);
 
@@ -212,7 +214,7 @@ function OutreachTab({ candidate }) {
       const data = await generateApi.outreach({ candidateId: candidate.id, ...config });
       const newMsg = { content: data.message, type: config.messageType, createdAt: new Date().toISOString() };
       setMessage(data.message);
-      setHistory(h => [newMsg, ...h]);
+      setHistory(h => [{ ...newMsg, _origIdx: 0 }, ...h.map((m, i) => ({ ...m, _origIdx: i + 1 }))]);
       setShowHistory(true);
       toast.success('Message generated!');
     } catch (e) { toast.error(e.message); }
@@ -225,7 +227,7 @@ function OutreachTab({ candidate }) {
     try {
       await interviewApi.addOutreachMsg(candidate.id, manualText.trim(), manualType);
       const newMsg = { content: manualText.trim(), type: manualType, createdAt: new Date().toISOString() };
-      setHistory(h => [...h, newMsg]);
+      setHistory(h => [...h, { ...newMsg, _origIdx: h.length }]);
       setManualText('');
       setShowManual(false);
       setShowHistory(true);
@@ -241,7 +243,8 @@ function OutreachTab({ candidate }) {
     if (!editText.trim()) return;
     setSaving(true);
     try {
-      await interviewApi.editOutreachMsg(candidate.id, i, editText.trim());
+      const firestoreIdx = history[i]._origIdx ?? i;
+      await interviewApi.editOutreachMsg(candidate.id, firestoreIdx, editText.trim());
       setHistory(h => h.map((m, idx) => idx === i ? { ...m, content: editText.trim() } : m));
       setEditingIdx(null);
       toast.success('Message updated');
@@ -252,8 +255,9 @@ function OutreachTab({ candidate }) {
   const deleteMsg = async (i) => {
     if (!window.confirm('Delete this message?')) return;
     try {
-      await interviewApi.deleteOutreachMsg(candidate.id, i);
-      setHistory(h => h.filter((_, idx) => idx !== i));
+      const firestoreIdx = history[i]._origIdx ?? i;
+      await interviewApi.deleteOutreachMsg(candidate.id, firestoreIdx);
+      setHistory(h => h.filter((_, idx) => idx !== i).map((m, newIdx) => ({ ...m, _origIdx: newIdx })));
       toast.success('Message deleted');
     } catch (e) { toast.error(e.message); }
   };
@@ -341,7 +345,9 @@ function OutreachTab({ candidate }) {
               <button className="btn btn-secondary btn-sm" onClick={generate}>↺ Regenerate</button>
             </div>
           </div>
-          <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'DM Sans, sans-serif', fontSize: 13.5, color: 'var(--text-secondary)', lineHeight: 1.7 }}>{message}</pre>
+          <div className="markdown-output" style={{ fontSize: 13.5, lineHeight: 1.7 }}>
+            <ReactMarkdown>{message}</ReactMarkdown>
+          </div>
         </div>
       )}
 
@@ -379,7 +385,9 @@ function OutreachTab({ candidate }) {
                 <textarea className="form-textarea" style={{ minHeight: 120, fontSize: 13 }}
                   value={editText} onChange={e => setEditText(e.target.value)} autoFocus />
               ) : (
-                <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'DM Sans, sans-serif', fontSize: 12.5, color: 'var(--text-secondary)', lineHeight: 1.7 }}>{m.content}</pre>
+                <div className="markdown-output" style={{ fontSize: 13, lineHeight: 1.7 }}>
+                  <ReactMarkdown>{m.content}</ReactMarkdown>
+                </div>
               )}
             </div>
           ))}
@@ -399,12 +407,13 @@ function ConversationTab({ candidate, appliedScenario }) {
     customInstructions: '',
   });
   const [history, setHistory] = useState(
-    (candidate.conversationHistory || []).map(m => ({
+    (candidate.conversationHistory || []).map((m, originalIdx) => ({
       role:          m.role === 'assistant' ? 'assistant' : 'user',
       content:       m.content,
       timestamp:     m.timestamp,
       imageBase64:   m.imageBase64   || null,
       imageMimeType: m.imageMimeType || null,
+      _origIdx:      originalIdx,   // track Firestore index
     }))
   );
   const [input, setInput] = useState('');
@@ -481,6 +490,7 @@ function ConversationTab({ candidate, appliedScenario }) {
       setHistory(h => [...h, {
         role: manualRole, content: manualText.trim(),
         timestamp: new Date().toISOString(),
+        _origIdx: h.length,  // new message goes to the end
       }]);
       setManualText('');
       setShowManual(false);
@@ -496,7 +506,9 @@ function ConversationTab({ candidate, appliedScenario }) {
     if (!editText.trim()) return;
     setSavingEdit(true);
     try {
-      await interviewApi.editConversationMsg(candidate.id, i, editText.trim());
+      // Use the Firestore-tracked original index, not the local display index
+      const firestoreIdx = history[i]._origIdx ?? i;
+      await interviewApi.editConversationMsg(candidate.id, firestoreIdx, editText.trim());
       setHistory(h => h.map((m, idx) => idx === i ? { ...m, content: editText.trim() } : m));
       setEditingIdx(null);
       toast.success('Message updated');
@@ -522,7 +534,7 @@ function ConversationTab({ candidate, appliedScenario }) {
 
     try {
       const data = await generateApi.conversation(buildPayload(newHistory, userMsg, imgData));
-      setHistory(h => [...h, { role: 'assistant', content: data.response, timestamp: new Date().toISOString() }]);
+      setHistory(h => [...h, { role: 'assistant', content: data.response, timestamp: new Date().toISOString(), _origIdx: h.length }]);
     } catch (e) {
       toast.error(e.message);
       setHistory(h => h.slice(0, -1));
@@ -564,8 +576,10 @@ function ConversationTab({ candidate, appliedScenario }) {
   const deleteMsg = async (i) => {
     if (!window.confirm('Delete this message?')) return;
     try {
-      await interviewApi.deleteConversationMsg(candidate.id, i);
-      setHistory(h => h.filter((_, idx) => idx !== i));
+      const firestoreIdx = history[i]._origIdx ?? i;
+      await interviewApi.deleteConversationMsg(candidate.id, firestoreIdx);
+      // After delete, reassign original indices for remaining messages
+      setHistory(h => h.filter((_, idx) => idx !== i).map((m, newIdx) => ({ ...m, _origIdx: newIdx })));
       toast.success('Message deleted');
     } catch (e) { toast.error(e.message); }
   };
@@ -758,7 +772,11 @@ function ConversationTab({ candidate, appliedScenario }) {
                     </div>
                   </div>
                 ) : (
-                  msg.content && <div>{msg.content}</div>
+                  msg.content && (
+                    <div className="markdown-output" style={{ fontSize: 13.5, lineHeight: 1.7 }}>
+                      <ReactMarkdown>{msg.content}</ReactMarkdown>
+                    </div>
+                  )
                 )}
               </div>
             ))}
