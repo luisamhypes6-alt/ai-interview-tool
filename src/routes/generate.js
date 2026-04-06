@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const PDFDocument = require('pdfkit');
 const Candidate = require('../models/Candidate');
-const { getOpenAIClient, getKnowledgeContext, getCustomInstructions, getCompanyScenario } = require('../utils/openai');
+const { getOpenAIClient, getKnowledgeContext, getCustomInstructions, getCompanyScenario, buildSystemContext } = require('../utils/openai');
 const { requireAuth } = require('../utils/auth');
 
 router.use(requireAuth);
@@ -74,8 +74,7 @@ router.post('/scenario', async (req, res) => {
     const { candidateId, role, goal, tone = 'professional', customInstructions, recruiterId } = req.body;
     const effectiveUserId = await getEffectiveUserId(req, candidateId);
     const openai = await getOpenAIClient(effectiveUserId);
-    const knowledgeContext = await getKnowledgeContext(effectiveUserId);
-    const globalInstructions = await getCustomInstructions(effectiveUserId);
+    const systemContext = await buildSystemContext(effectiveUserId);
     const recruiterContext = await getRecruiterContext(recruiterId);
 
     let candidateContext = '';
@@ -90,7 +89,7 @@ router.post('/scenario', async (req, res) => {
     const roleLabel = await resolveRoleLabel(role);
     const toneLabel = TONES[tone] || tone;
 
-    const prompt = `You are an expert technical recruiter and interview coach. Generate a comprehensive, structured interview scenario for a ${roleLabel} position.\n\n${candidateContext}\n${knowledgeContext}${recruiterContext}\n${globalInstructions}\n${customInstructions ? `\nADDITIONAL INSTRUCTIONS:\n${customInstructions}` : ''}\n\nINTERVIEW GOAL: ${goal || 'Assess technical competency and cultural fit'}\nTONE: ${toneLabel}\n\nGenerate a complete interview scenario with:\n1. **Interview Overview** - Brief context and objectives\n2. **Opening Questions** (3-4) - Warm-up and background\n3. **Technical Assessment** (5-7 role-specific questions with expected answers)\n4. **Behavioral Questions** (3-4) - Situation-based\n5. **Culture & Motivation** (2-3 questions)\n6. **Closing** - Questions to offer the candidate, next steps\n7. **Evaluation Rubric** - Key criteria and scoring guide\n\nMake it conversational, insightful, and tailored to the candidate profile if provided. Use the ${toneLabel} tone throughout.`;
+    const prompt = `You are an expert technical recruiter and interview coach. Generate a comprehensive, structured interview scenario for a ${roleLabel} position.\n\n${candidateContext}\n${systemContext}\n${recruiterContext}\n${customInstructions ? `\nADDITIONAL INSTRUCTIONS:\n${customInstructions}` : ''}\n\nINTERVIEW GOAL: ${goal || 'Assess technical competency and cultural fit'}\nTONE: ${toneLabel}\n\nGenerate a complete interview scenario with:\n1. **Interview Overview** - Brief context and objectives\n2. **Opening Questions** (3-4) - Warm-up and background\n3. **Technical Assessment** (5-7 role-specific questions with expected answers)\n4. **Behavioral Questions** (3-4) - Situation-based\n5. **Culture & Motivation** (2-3 questions)\n6. **Closing** - Questions to offer the candidate, next steps\n7. **Evaluation Rubric** - Key criteria and scoring guide\n\nMake it conversational, insightful, and tailored to the candidate profile if provided. Use the ${toneLabel} tone throughout.`;
 
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o',
@@ -114,8 +113,7 @@ router.post('/outreach', async (req, res) => {
     const { candidateId, role, messageType = 'outreach', tone = 'professional', goal, customInstructions, recruiterId } = req.body;
     const effectiveUserId = await getEffectiveUserId(req, candidateId);
     const openai = await getOpenAIClient(effectiveUserId);
-    const knowledgeContext = await getKnowledgeContext(effectiveUserId);
-    const globalInstructions = await getCustomInstructions(effectiveUserId);
+    const systemContext = await buildSystemContext(effectiveUserId);
     const recruiterContext = await getRecruiterContext(recruiterId);
 
     let candidateContext = '';
@@ -136,7 +134,7 @@ router.post('/outreach', async (req, res) => {
       followup:  'follow-up after previous conversation',
     }[messageType] || messageType;
 
-    const prompt = `You are an expert recruiter writing a ${messageTypeDesc} message for a ${roleLabel} position.\n\n${candidateContext}\n${knowledgeContext}${recruiterContext}\n${globalInstructions}\n${customInstructions ? `\nADDITIONAL INSTRUCTIONS:\n${customInstructions}` : ''}\n\nGoal: ${goal || 'Connect with the candidate and initiate a conversation about the opportunity'}\nTone: ${toneLabel}\n\nWrite a compelling, personalized ${messageTypeDesc} message that:\n- Feels genuine and human, not templated\n- References specific details from the candidate's background if available\n- Clearly communicates the opportunity and value proposition\n- Has a clear call-to-action\n- Is the right length for ${messageType} (concise for outreach, more detailed for technical)\n\nFormat:\nSubject: [email subject line]\n\n[Message body]`;
+    const prompt = `You are an expert recruiter writing a ${messageTypeDesc} message for a ${roleLabel} position.\n\n${candidateContext}\n${systemContext}\n${recruiterContext}\n${customInstructions ? `\nADDITIONAL INSTRUCTIONS:\n${customInstructions}` : ''}\n\nGoal: ${goal || 'Connect with the candidate and initiate a conversation about the opportunity'}\nTone: ${toneLabel}\n\nWrite a compelling, personalized ${messageTypeDesc} message that:\n- Feels genuine and human, not templated\n- References specific details from the candidate's background if available\n- Clearly communicates the opportunity and value proposition\n- Has a clear call-to-action\n- Is the right length for ${messageType} (concise for outreach, more detailed for technical)\n\nFormat:\nSubject: [email subject line]\n\n[Message body]`;
 
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o',
@@ -165,9 +163,7 @@ router.post('/conversation', async (req, res) => {
 
     const effectiveUserId = await getEffectiveUserId(req, candidateId);
     const openai = await getOpenAIClient(effectiveUserId);
-    const knowledgeContext   = await getKnowledgeContext(effectiveUserId);
-    const globalInstructions = await getCustomInstructions(effectiveUserId);
-    const companyScenario    = await getCompanyScenario(effectiveUserId);
+    const systemContext = await buildSystemContext(effectiveUserId);
     const recruiterContext   = await getRecruiterContext(recruiterId);
 
     let candidateContext = '';
@@ -184,9 +180,8 @@ router.post('/conversation', async (req, res) => {
 
     const systemPrompt = `You are an expert recruiter having a conversation with a job candidate for a ${roleLabel} position.
 ${candidateContext}
-${knowledgeContext}${recruiterContext}
-${globalInstructions}
-${companyScenario}
+${systemContext}
+${recruiterContext}
 ${customInstructions ? `\nCONVERSATION INSTRUCTIONS:\n${customInstructions}` : ''}
 
 Maintain a ${toneLabel} tone. Generate the next ideal recruiter response based on what the candidate said.

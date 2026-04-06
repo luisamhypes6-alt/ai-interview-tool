@@ -402,7 +402,9 @@ function KnowledgeSection({ dbConnected, targetUserId = null }) {
       {kbTab === 2 && (
         <>
           <div className="form-group"><label className="form-label">Custom AI Instructions</label><textarea className="form-textarea" style={{ minHeight: 140 }} placeholder="Describe your company, tone preferences, interview strategies..." value={instructions} onChange={e => { setInstructions(e.target.value); setAiReply(''); }} disabled={!dbConnected} /></div>
-          <div className="form-group"><label className="form-label">Test Prompt <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(optional)</span></label><input className="form-input" placeholder="e.g. Write a brief outreach for a Solidity developer" value={testPrompt} onChange={e => setTestPrompt(e.target.value)} /></div>
+          <div className="form-group"><label className="form-label">Test Prompt <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(optional)</span></label><input className="form-input" placeholder="e.g. What do you know about this company? or: Write an outreach for a Solidity developer" value={testPrompt} onChange={e => setTestPrompt(e.target.value)} />
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 5 }}>The test automatically includes your uploaded knowledge base — ask about the company to verify it was loaded correctly.</div>
+          </div>
           <div className="flex gap-8 mb-16">
             <button className="btn btn-primary" onClick={saveInstructions} disabled={savingInstr || !dbConnected}>{savingInstr ? <><span className="spinner" style={{ width: 14, height: 14 }} /> Saving...</> : 'Save Instructions'}</button>
             <button className="btn btn-secondary" onClick={testInstructions} disabled={testingInstr}>{testingInstr ? <><span className="spinner" style={{ width: 14, height: 14 }} /> Testing...</> : '▶ Test Instructions'}</button>

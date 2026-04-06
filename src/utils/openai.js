@@ -4,12 +4,10 @@ const { isConnected } = require('./firebase');
 // Cache clients per API key
 const clientCache = new Map();
 
-// Get OpenAI client for a specific user
-// Priority: user's own key → global env key → global DB key
+// Get OpenAI client — user key → global env → global DB
 const getOpenAIClient = async (userId) => {
   let apiKey = null;
 
-  // 1. User's own key from Firestore
   if (userId && isConnected()) {
     try {
       const Settings = require('../models/Settings');
@@ -17,10 +15,8 @@ const getOpenAIClient = async (userId) => {
     } catch (_) {}
   }
 
-  // 2. Global env var fallback
   if (!apiKey) apiKey = process.env.OPENAI_API_KEY;
 
-  // 3. Global DB key fallback
   if (!apiKey && isConnected()) {
     try {
       const Settings = require('../models/Settings');
@@ -32,30 +28,43 @@ const getOpenAIClient = async (userId) => {
     throw new Error('OpenAI API key not configured. Please add your API key in Settings → Account.');
   }
 
-  // Cache by key to avoid re-creating clients unnecessarily
   if (!clientCache.has(apiKey)) {
     clientCache.set(apiKey, new OpenAI({ apiKey }));
   }
   return clientCache.get(apiKey);
 };
 
-// Get knowledge base context for a specific user (their own KB only)
+// Build full knowledge base context for a user
+// Includes ALL their uploaded docs, URLs and custom instructions
 const getKnowledgeContext = async (userId) => {
   if (!isConnected() || !userId) return '';
   try {
     const KnowledgeBase = require('../models/KnowledgeBase');
     const docs = await KnowledgeBase.findByUser(userId);
-    const limited = docs.slice(0, 10);
-    if (!limited.length) return '';
-    return '\n\n--- KNOWLEDGE BASE & CONTEXT ---\n' +
-      limited.map(d => `[${d.name}]: ${d.content?.substring(0, 1000) || ''}`).join('\n\n');
+    if (!docs.length) return '';
+
+    // Budget: 12000 chars total across all docs (fits comfortably in GPT-4o context)
+    const TOTAL_BUDGET = 12000;
+    const perDoc       = Math.floor(TOTAL_BUDGET / Math.min(docs.length, 15));
+
+    const sections = docs.slice(0, 15).map(d => {
+      const content = (d.content || '').trim();
+      const truncated = content.length > perDoc
+        ? content.substring(0, perDoc) + '... [truncated]'
+        : content;
+      return `### ${d.name} (${d.category || d.type})\n${truncated}`;
+    });
+
+    return '\n\n--- COMPANY KNOWLEDGE BASE ---\n' +
+      'Use the following company information to personalise all responses:\n\n' +
+      sections.join('\n\n');
   } catch (e) {
     console.error('[OpenAI] Knowledge context error:', e.message);
     return '';
   }
 };
 
-// Get custom instructions for a specific user
+// Get custom instructions for a user
 const getCustomInstructions = async (userId) => {
   if (!isConnected() || !userId) return '';
   try {
@@ -65,7 +74,7 @@ const getCustomInstructions = async (userId) => {
   } catch (_) { return ''; }
 };
 
-// Get company scenario for a specific user
+// Get company scenario for a user
 const getCompanyScenario = async (userId) => {
   if (!isConnected() || !userId) return '';
   try {
@@ -75,4 +84,21 @@ const getCompanyScenario = async (userId) => {
   } catch (_) { return ''; }
 };
 
-module.exports = { getOpenAIClient, getKnowledgeContext, getCustomInstructions, getCompanyScenario };
+// Build the full system context string for AI calls
+// Combines KB + custom instructions + company scenario
+const buildSystemContext = async (userId) => {
+  const [kb, instructions, scenario] = await Promise.all([
+    getKnowledgeContext(userId),
+    getCustomInstructions(userId),
+    getCompanyScenario(userId),
+  ]);
+  return [kb, instructions, scenario].filter(Boolean).join('');
+};
+
+module.exports = {
+  getOpenAIClient,
+  getKnowledgeContext,
+  getCustomInstructions,
+  getCompanyScenario,
+  buildSystemContext,
+};

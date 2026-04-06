@@ -160,15 +160,30 @@ router.post('/knowledge/instructions', requireAuth, async (req, res) => {
 });
 
 // ── POST /api/settings/knowledge/test-instructions ───────────────────────────
+// Tests AI with the user's actual KB injected — so they can verify it works
 router.post('/knowledge/test-instructions', requireAuth, async (req, res) => {
   try {
-    const { getOpenAIClient } = require('../utils/openai');
-    const { instructions, prompt = 'Introduce yourself and explain how you will assist with recruiting.' } = req.body;
+    const { getOpenAIClient, buildSystemContext } = require('../utils/openai');
+    const { instructions, prompt = 'What do you know about this company? Summarise the key information.' } = req.body;
+
+    // Load user's full KB context so it's included in the test
+    const kbContext = await buildSystemContext(req.user.id);
+
+    // Build system prompt: KB context first, then user's custom instructions
+    const systemPrompt = [
+      kbContext || '(No knowledge base uploaded yet — add documents in the sections above)',
+      instructions ? `\n\n--- ADDITIONAL INSTRUCTIONS ---\n${instructions}` : '',
+    ].join('');
+
     const openai = await getOpenAIClient(req.user.id);
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o',
-      messages: [{ role: 'system', content: instructions }, { role: 'user', content: prompt }],
-      max_tokens: 400, temperature: 0.7,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user',   content: prompt },
+      ],
+      max_tokens: 600,
+      temperature: 0.7,
     });
     res.json({ reply: completion.choices[0].message.content });
   } catch (err) { res.status(500).json({ error: err.message }); }
