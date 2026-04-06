@@ -15,14 +15,15 @@ const { extractTextFromBuffer } = require('../utils/fileParser');
 const recruiterKey = (userId) => `recruiters_${userId}`;
 
 // ── GET /api/settings ──────────────────────────────────────────────────────────
+// Admin: pass ?userId=xxx to view settings for a specific user
 router.get('/', async (req, res) => {
   try {
-    let hasFirebase    = !!process.env.FIREBASE_SERVICE_ACCOUNT;
-    let roles          = null;
-    let recruiters     = [];
+    let hasFirebase     = !!process.env.FIREBASE_SERVICE_ACCOUNT;
+    let roles           = null;
+    let recruiters      = [];
     let companyScenario = '';
-    let hasOpenAI      = !!process.env.OPENAI_API_KEY;
-    let userOpenAIKey  = '';
+    let hasOpenAI       = !!process.env.OPENAI_API_KEY;
+    let userOpenAIKey   = '';
 
     if (isConnected()) {
       const S   = getSettings();
@@ -32,39 +33,29 @@ router.get('/', async (req, res) => {
       if (all.openai_api_key)           hasOpenAI   = true;
       if (all.custom_roles)             roles       = all.custom_roles;
 
-      // Get user-scoped data if authenticated
       const { verifyToken } = require('../utils/auth');
       const authHeader = req.headers.authorization || '';
       if (authHeader.startsWith('Bearer ')) {
         try {
           const payload = verifyToken(authHeader.slice(7));
           if (payload) {
-            const userId = payload.id;
+            // Admin can query another user's settings via ?userId=xxx
+            const userId = (payload.isAdmin && req.query.userId)
+              ? req.query.userId
+              : payload.id;
 
-            // User's own OpenAI key
             const ownKey = await S.getForUser(userId, 'openai_key').catch(() => null);
-            userOpenAIKey  = ownKey ? '••••••••' : '';  // masked — just indicate if set
+            userOpenAIKey   = ownKey ? '••••••••' : '';
             if (ownKey) hasOpenAI = true;
 
-            // User's company scenario
             companyScenario = await S.getForUser(userId, 'company_scenario').catch(() => '') || '';
-
-            // User's recruiters
-            recruiters = all[recruiterKey(userId)] || [];
+            recruiters      = all[recruiterKey(userId)] || [];
           }
         } catch (_) {}
       }
     }
 
-    res.json({
-      hasOpenAI,
-      hasFirebase,
-      userOpenAIKey,
-      dbConnected: isConnected(),
-      roles,
-      recruiters,
-      companyScenario,
-    });
+    res.json({ hasOpenAI, hasFirebase, userOpenAIKey, dbConnected: isConnected(), roles, recruiters, companyScenario });
   } catch (err) {
     res.json({ hasOpenAI: !!process.env.OPENAI_API_KEY, hasFirebase: !!process.env.FIREBASE_SERVICE_ACCOUNT, dbConnected: false, roles: null, recruiters: [], companyScenario: '', userOpenAIKey: '' });
   }

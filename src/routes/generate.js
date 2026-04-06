@@ -4,8 +4,20 @@ const PDFDocument = require('pdfkit');
 const Candidate = require('../models/Candidate');
 const { getOpenAIClient, getKnowledgeContext, getCustomInstructions, getCompanyScenario } = require('../utils/openai');
 const { requireAuth } = require('../utils/auth');
+const Candidate = require('../models/Candidate');
 
 router.use(requireAuth);
+
+// Helper: get the effective userId for AI context
+// If admin is generating for a candidate, use the candidate's owner's context
+// so the right KB and API key are used
+const getEffectiveUserId = async (req, candidateId) => {
+  if (!req.user.isAdmin || !candidateId) return req.user.id;
+  try {
+    const c = await Candidate.findById(candidateId);
+    return (c && c.ownerId) ? c.ownerId : req.user.id;
+  } catch (_) { return req.user.id; }
+};
 
 const DEFAULT_ROLES = {
   cto:              'Chief Technology Officer (CTO)',
@@ -61,9 +73,10 @@ async function getRecruiterContext(recruiterId) {
 router.post('/scenario', async (req, res) => {
   try {
     const { candidateId, role, goal, tone = 'professional', customInstructions, recruiterId } = req.body;
-    const openai = await getOpenAIClient(req.user.id);
-    const knowledgeContext = await getKnowledgeContext(req.user.id);
-    const globalInstructions = await getCustomInstructions(req.user.id);
+    const effectiveUserId = await getEffectiveUserId(req, candidateId);
+    const openai = await getOpenAIClient(effectiveUserId);
+    const knowledgeContext = await getKnowledgeContext(effectiveUserId);
+    const globalInstructions = await getCustomInstructions(effectiveUserId);
     const recruiterContext = await getRecruiterContext(recruiterId);
 
     let candidateContext = '';
@@ -100,9 +113,10 @@ router.post('/scenario', async (req, res) => {
 router.post('/outreach', async (req, res) => {
   try {
     const { candidateId, role, messageType = 'outreach', tone = 'professional', goal, customInstructions, recruiterId } = req.body;
-    const openai = await getOpenAIClient(req.user.id);
-    const knowledgeContext = await getKnowledgeContext(req.user.id);
-    const globalInstructions = await getCustomInstructions(req.user.id);
+    const effectiveUserId = await getEffectiveUserId(req, candidateId);
+    const openai = await getOpenAIClient(effectiveUserId);
+    const knowledgeContext = await getKnowledgeContext(effectiveUserId);
+    const globalInstructions = await getCustomInstructions(effectiveUserId);
     const recruiterContext = await getRecruiterContext(recruiterId);
 
     let candidateContext = '';
@@ -150,10 +164,11 @@ router.post('/conversation', async (req, res) => {
       history = [], recruiterId, customInstructions, imageBase64, imageMimeType,
     } = req.body;
 
-    const openai = await getOpenAIClient(req.user.id);
-    const knowledgeContext   = await getKnowledgeContext(req.user.id);
-    const globalInstructions = await getCustomInstructions(req.user.id);
-    const companyScenario    = await getCompanyScenario(req.user.id);
+    const effectiveUserId = await getEffectiveUserId(req, candidateId);
+    const openai = await getOpenAIClient(effectiveUserId);
+    const knowledgeContext   = await getKnowledgeContext(effectiveUserId);
+    const globalInstructions = await getCustomInstructions(effectiveUserId);
+    const companyScenario    = await getCompanyScenario(effectiveUserId);
     const recruiterContext   = await getRecruiterContext(recruiterId);
 
     let candidateContext = '';

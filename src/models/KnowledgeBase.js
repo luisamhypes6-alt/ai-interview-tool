@@ -5,14 +5,30 @@ const now = () => new Date().toISOString();
 const docToObj = (doc) => ({ id: doc.id, ...doc.data() });
 
 const KnowledgeBase = {
-  // Find all items belonging to a specific user
+  // Get all items for a specific user
   async findByUser(ownerId) {
     const db = getDB();
-    const snap = await db.collection(COL)
-      .where('ownerId', '==', ownerId)
-      .orderBy('createdAt', 'desc')
-      .get();
-    return snap.docs.map(docToObj);
+    try {
+      const snap = await db.collection(COL)
+        .where('ownerId', '==', ownerId)
+        .orderBy('createdAt', 'desc')
+        .get();
+      return snap.docs.map(docToObj);
+    } catch (e) {
+      // Fallback if index not ready — filter client-side
+      const snap = await db.collection(COL).get();
+      return snap.docs.map(docToObj)
+        .filter(d => d.ownerId === ownerId)
+        .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+    }
+  },
+
+  // Get all items across all users (admin only)
+  async findAll() {
+    const db = getDB();
+    const snap = await db.collection(COL).get();
+    return snap.docs.map(docToObj)
+      .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
   },
 
   async create(data) {
@@ -25,7 +41,8 @@ const KnowledgeBase = {
       url:       data.url       || '',
       fileName:  data.fileName  || '',
       category:  data.category  || 'company_docs',
-      ownerId:   data.ownerId   || '',   // user who created this
+      ownerId:   data.ownerId   || '',
+      ownerName: data.ownerName || '',
       createdAt: ts,
       updatedAt: ts,
     };
@@ -33,11 +50,11 @@ const KnowledgeBase = {
     return { id: ref.id, ...payload };
   },
 
+  // Admin passes null for ownerId to bypass ownership check
   async delete(id, ownerId) {
     const db = getDB();
     const doc = await db.collection(COL).doc(id).get();
     if (!doc.exists) throw new Error('Not found');
-    // Only owner or admin can delete
     if (ownerId && doc.data().ownerId !== ownerId) throw new Error('Access denied');
     await db.collection(COL).doc(id).delete();
   },

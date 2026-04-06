@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback, useContext } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useDropzone } from 'react-dropzone';
 import toast from 'react-hot-toast';
-import { settingsApi, candidateApi } from '../utils/api';
+import { settingsApi, candidateApi, authApi } from '../utils/api';
 import { AppContext } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
 import UserManagement from './UserManagement';
@@ -300,7 +300,7 @@ function RecruitersSection({ dbConnected }) {
 }
 
 // ── Knowledge Base ────────────────────────────────────────────────────────────
-function KnowledgeSection({ dbConnected }) {
+function KnowledgeSection({ dbConnected, targetUserId = null }) {
   const [items, setItems]               = useState([]);
   const [loading, setLoading]           = useState(false);
   const [urlInput, setUrlInput]         = useState('');
@@ -320,7 +320,7 @@ function KnowledgeSection({ dbConnected }) {
     try { setItems(await settingsApi.getKnowledge()); }
     catch (e) { console.error(e.message); }
     finally { setLoading(false); }
-  }, [dbConnected]);
+  }, [dbConnected, targetUserId]);
 
   useEffect(() => { fetchItems(); }, [fetchItems]);
 
@@ -548,6 +548,121 @@ function AccountSection() {
   );
 }
 
+// ── Admin: Browse any user's resources ───────────────────────────────────────
+function AdminUserResources({ dbConnected }) {
+  const [users,        setUsers]        = useState([]);
+  const [selectedUser, setSelectedUser] = useState(null);
+  const [tab,          setTab]          = useState('kb'); // 'kb' | 'settings'
+  const [userSettings, setUserSettings] = useState(null);
+  const [loadingSettings, setLoadingSettings] = useState(false);
+
+  useEffect(() => {
+    authApi.listUsers().then(setUsers).catch(() => {});
+  }, []);
+
+  const loadUserSettings = async (userId) => {
+    setLoadingSettings(true);
+    try {
+      const data = await settingsApi.getAll({ userId });
+      setUserSettings(data);
+    } catch (_) {}
+    finally { setLoadingSettings(false); }
+  };
+
+  const selectUser = (u) => {
+    setSelectedUser(u);
+    setUserSettings(null);
+    if (tab === 'settings') loadUserSettings(u.id);
+  };
+
+  const handleTabChange = (t) => {
+    setTab(t);
+    if (t === 'settings' && selectedUser) loadUserSettings(selectedUser.id);
+  };
+
+  return (
+    <div className="card mt-16">
+      <div className="card-title">Browse User Resources</div>
+      <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 16 }}>
+        View and manage knowledge bases and settings for any user.
+      </p>
+
+      {/* User selector */}
+      <div className="form-group">
+        <label className="form-label">Select User</label>
+        <select className="form-select" value={selectedUser?.id || ''}
+          onChange={e => {
+            const u = users.find(u => u.id === e.target.value);
+            if (u) selectUser(u); else setSelectedUser(null);
+          }}>
+          <option value="">— Select a user —</option>
+          {users.map(u => (
+            <option key={u.id} value={u.id}>
+              {u.displayName || u.username} {u.isAdmin ? '(Admin)' : ''}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {selectedUser && (
+        <>
+          {/* Tab switcher */}
+          <div className="tabs" style={{ marginBottom: 16 }}>
+            {[['kb', '📁 Knowledge Base'], ['settings', '⚙ Settings']].map(([key, label]) => (
+              <button key={key} className={`tab ${tab === key ? 'active' : ''}`}
+                onClick={() => handleTabChange(key)}>{label}</button>
+            ))}
+          </div>
+
+          {/* Knowledge base tab */}
+          {tab === 'kb' && (
+            <KnowledgeSection dbConnected={dbConnected} targetUserId={selectedUser.id} />
+          )}
+
+          {/* Settings tab */}
+          {tab === 'settings' && (
+            <div>
+              {loadingSettings ? (
+                <div style={{ textAlign: 'center', padding: 24 }}><span className="spinner" /></div>
+              ) : userSettings ? (
+                <div>
+                  {/* OpenAI key status */}
+                  <div style={{ padding: '10px 14px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', marginBottom: 10 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 4 }}>OpenAI API Key</div>
+                    <div style={{ fontSize: 13, color: userSettings.userOpenAIKey ? 'var(--success)' : 'var(--text-muted)' }}>
+                      {userSettings.userOpenAIKey ? '✓ Configured (key hidden)' : '✗ Not set — using system key'}
+                    </div>
+                  </div>
+                  {/* Company scenario */}
+                  <div style={{ padding: '10px 14px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)', marginBottom: 10 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 4 }}>Company Scenario</div>
+                    {userSettings.companyScenario
+                      ? <pre style={{ fontSize: 12, color: 'var(--text-secondary)', whiteSpace: 'pre-wrap', lineHeight: 1.6, maxHeight: 200, overflow: 'auto' }}>{userSettings.companyScenario}</pre>
+                      : <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>None set</div>}
+                  </div>
+                  {/* Recruiters */}
+                  <div style={{ padding: '10px 14px', background: 'var(--bg-elevated)', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 4 }}>Recruiters</div>
+                    {userSettings.recruiters?.length
+                      ? userSettings.recruiters.map(r => (
+                          <div key={r.id} style={{ fontSize: 13, color: 'var(--text-secondary)', padding: '4px 0', borderBottom: '1px solid var(--border)' }}>
+                            {r.name} {r.email ? `— ${r.email}` : ''}
+                          </div>
+                        ))
+                      : <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>No recruiters</div>}
+                  </div>
+                </div>
+              ) : (
+                <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Select a user to view their settings.</div>
+              )}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 // ── Main Settings Page ────────────────────────────────────────────────────────
 const TABS = [
   { key: 'general',  label: '⚙ General' },
@@ -629,11 +744,19 @@ export default function Settings() {
       </div>
 
       {/* ── Account tab ── */}
-      {activeTab === 'account' && <AccountSection />}
+      {activeTab === 'account' && (
+        <>
+          <AccountSection />
+          <KnowledgeSection dbConnected={dbConnected} />
+        </>
+      )}
 
       {/* ── Users tab (admin only) ── */}
       {activeTab === 'users' && user?.isAdmin && (
-        <div className="card"><UserManagement /></div>
+        <>
+          <div className="card"><UserManagement /></div>
+          <AdminUserResources dbConnected={dbConnected} />
+        </>
       )}
 
       {/* ── General tab ── */}
@@ -641,8 +764,8 @@ export default function Settings() {
         <>
           <DBBanner dbConnected={dbConnected} hasFirebase={hasFirebase} />
 
-          {/* API Configuration */}
-          <div className="card">
+          {/* API Configuration — admin only */}
+          {user?.isAdmin && <div className="card">
             <div className="card-title">API Configuration</div>
             <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 20 }}>API keys are stored in memory immediately and persisted to the database once connected.</p>
             <div className="form-group">
@@ -661,15 +784,14 @@ export default function Settings() {
                 <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Download from <a href="https://console.firebase.google.com/project/_/settings/serviceaccounts/adminsdk" target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>Firebase Console → Service Accounts</a></span>
               </div>
             </div>
-          </div>
+          </div>}
 
           <RolesSection dbConnected={dbConnected} />
           <CompanyScenarioSection dbConnected={dbConnected} />
           <RecruitersSection dbConnected={dbConnected} />
-          <KnowledgeSection dbConnected={dbConnected} />
 
-          {/* Deployment */}
-          <div className="card mt-16">
+          {/* Deployment — admin only */}
+          {user?.isAdmin && <div className="card mt-16">
             <div className="card-title">Deployment</div>
             <div style={{ background: 'var(--bg-elevated)', borderRadius: 'var(--radius-sm)', padding: 16, fontFamily: 'DM Mono, monospace', fontSize: 12, color: 'var(--text-secondary)' }}>
               <div style={{ color: 'var(--text-muted)', marginBottom: 8 }}># Required environment variables</div>
@@ -678,7 +800,7 @@ export default function Settings() {
               <div>JWT_SECRET=your-strong-secret-here</div>
               <div>CLIENT_URL=https://your-app.vercel.app</div>
             </div>
-          </div>
+          </div>}
         </>
       )}
     </div>
