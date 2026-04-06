@@ -156,6 +156,24 @@ const Candidate = {
     await db.collection(COL).doc(id).update({ interviewScenarios: arr, updatedAt: now() });
   },
 
+  async updateConversationMessage(id, index, newContent) {
+    const db = getDB();
+    const doc = await db.collection(COL).doc(id).get();
+    const arr = [...(doc.data().conversationHistory || [])];
+    if (index < 0 || index >= arr.length) throw new Error('Message index out of range');
+    arr[index] = { ...arr[index], content: newContent, editedAt: new Date().toISOString() };
+    await db.collection(COL).doc(id).update({ conversationHistory: arr, updatedAt: new Date().toISOString() });
+  },
+
+  async updateOutreachMessage(id, index, newContent) {
+    const db = getDB();
+    const doc = await db.collection(COL).doc(id).get();
+    const arr = [...(doc.data().outreachMessages || [])];
+    if (index < 0 || index >= arr.length) throw new Error('Message index out of range');
+    arr[index] = { ...arr[index], content: newContent, editedAt: new Date().toISOString() };
+    await db.collection(COL).doc(id).update({ outreachMessages: arr, updatedAt: new Date().toISOString() });
+  },
+
   // Check ownership (non-admin users can only access their own)
   canAccess(candidate, user) {
     if (!user) return false;

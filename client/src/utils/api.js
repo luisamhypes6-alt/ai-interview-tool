@@ -74,11 +74,18 @@ export const settingsApi = {
 };
 
 export const interviewApi = {
-  getHistory:            (id)       => api.get(`/interviews/${id}`),
-  clearConversation:     (id)       => api.delete(`/interviews/${id}/conversation`),
-  deleteConversationMsg: (id, idx)  => api.delete(`/interviews/${id}/conversation/${idx}`),
-  deleteOutreachMsg:     (id, idx)  => api.delete(`/interviews/${id}/outreach/${idx}`),
-  deleteScenario:        (id, idx)  => api.delete(`/interviews/${id}/scenario/${idx}`),
+  getHistory:            (id)            => api.get(`/interviews/${id}`),
+  clearConversation:     (id)            => api.delete(`/interviews/${id}/conversation`),
+  // Conversation
+  addConversationMsg:    (id, role, content) => api.post(`/interviews/${id}/conversation`, { role, content }),
+  editConversationMsg:   (id, idx, content) => api.patch(`/interviews/${id}/conversation/${idx}`, { content }),
+  deleteConversationMsg: (id, idx)       => api.delete(`/interviews/${id}/conversation/${idx}`),
+  // Outreach
+  addOutreachMsg:        (id, content, type) => api.post(`/interviews/${id}/outreach`, { content, type }),
+  editOutreachMsg:       (id, idx, content) => api.patch(`/interviews/${id}/outreach/${idx}`, { content }),
+  deleteOutreachMsg:     (id, idx)       => api.delete(`/interviews/${id}/outreach/${idx}`),
+  // Scenario
+  deleteScenario:        (id, idx)       => api.delete(`/interviews/${id}/scenario/${idx}`),
 };
 
 export default api;

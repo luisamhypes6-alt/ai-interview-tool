@@ -12,6 +12,7 @@ const getOwned = async (req, id) => {
   return [c, null, 200];
 };
 
+// GET history
 router.get('/:candidateId', async (req, res) => {
   try {
     const [c, err, code] = await getOwned(req, req.params.candidateId);
@@ -21,6 +22,9 @@ router.get('/:candidateId', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ── Conversation ────────────────────────────────────────────────────────────────
+
+// DELETE all
 router.delete('/:candidateId/conversation', async (req, res) => {
   try {
     const [, err, code] = await getOwned(req, req.params.candidateId);
@@ -30,6 +34,20 @@ router.delete('/:candidateId/conversation', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// POST — manually add a message to conversation
+router.post('/:candidateId/conversation', async (req, res) => {
+  try {
+    const [, err, code] = await getOwned(req, req.params.candidateId);
+    if (err) return res.status(code).json({ error: err });
+    const { role, content } = req.body;
+    if (!content?.trim()) return res.status(400).json({ error: 'Content is required' });
+    if (!['user', 'assistant'].includes(role)) return res.status(400).json({ error: 'Role must be user or assistant' });
+    await Candidate.pushConversation(req.params.candidateId, [{ role, content: content.trim() }]);
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// DELETE single message
 router.delete('/:candidateId/conversation/:index', async (req, res) => {
   try {
     const [, err, code] = await getOwned(req, req.params.candidateId);
@@ -39,6 +57,33 @@ router.delete('/:candidateId/conversation/:index', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// PATCH — edit a single conversation message
+router.patch('/:candidateId/conversation/:index', async (req, res) => {
+  try {
+    const [, err, code] = await getOwned(req, req.params.candidateId);
+    if (err) return res.status(code).json({ error: err });
+    const { content } = req.body;
+    if (!content?.trim()) return res.status(400).json({ error: 'Content is required' });
+    await Candidate.updateConversationMessage(req.params.candidateId, parseInt(req.params.index), content.trim());
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── Outreach ────────────────────────────────────────────────────────────────────
+
+// POST — manually add an outreach message
+router.post('/:candidateId/outreach', async (req, res) => {
+  try {
+    const [, err, code] = await getOwned(req, req.params.candidateId);
+    if (err) return res.status(code).json({ error: err });
+    const { content, type = 'manual' } = req.body;
+    if (!content?.trim()) return res.status(400).json({ error: 'Content is required' });
+    await Candidate.pushOutreachMessage(req.params.candidateId, { content: content.trim(), type });
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// DELETE single outreach message
 router.delete('/:candidateId/outreach/:index', async (req, res) => {
   try {
     const [, err, code] = await getOwned(req, req.params.candidateId);
@@ -47,6 +92,20 @@ router.delete('/:candidateId/outreach/:index', async (req, res) => {
     res.json({ success: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
+
+// PATCH — edit a single outreach message
+router.patch('/:candidateId/outreach/:index', async (req, res) => {
+  try {
+    const [, err, code] = await getOwned(req, req.params.candidateId);
+    if (err) return res.status(code).json({ error: err });
+    const { content } = req.body;
+    if (!content?.trim()) return res.status(400).json({ error: 'Content is required' });
+    await Candidate.updateOutreachMessage(req.params.candidateId, parseInt(req.params.index), content.trim());
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ error: err.message }); }
+});
+
+// ── Scenario ────────────────────────────────────────────────────────────────────
 
 router.delete('/:candidateId/scenario/:index', async (req, res) => {
   try {

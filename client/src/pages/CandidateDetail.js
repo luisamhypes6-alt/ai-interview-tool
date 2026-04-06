@@ -188,21 +188,65 @@ function OutreachTab({ candidate }) {
     role: candidate.role || '', messageType: 'outreach', tone: 'professional',
     goal: '', customInstructions: '', recruiterId: candidate.recruiterId || '',
   });
-  const [message, setMessage] = useState('');
-  const [history, setHistory] = useState(candidate.outreachMessages || []);
-  const [loading, setLoading] = useState(false);
-  const [showHistory, setShowHistory] = useState(false);
+  const [message,     setMessage]     = useState('');
+  const [history,     setHistory]     = useState(candidate.outreachMessages || []);
+  const [loading,     setLoading]     = useState(false);
+  const [showHistory, setShowHistory] = useState(history.length > 0);
+
+  // Manual add state
+  const [showManual,  setShowManual]  = useState(false);
+  const [manualText,  setManualText]  = useState('');
+  const [manualType,  setManualType]  = useState('manual');
+  const [addingManual, setAddingManual] = useState(false);
+
+  // Edit state
+  const [editingIdx,  setEditingIdx]  = useState(null);
+  const [editText,    setEditText]    = useState('');
+  const [saving,      setSaving]      = useState(false);
+
   const set = (k, v) => setConfig(p => ({ ...p, [k]: v }));
 
   const generate = async () => {
     setLoading(true);
     try {
       const data = await generateApi.outreach({ candidateId: candidate.id, ...config });
+      const newMsg = { content: data.message, type: config.messageType, createdAt: new Date().toISOString() };
       setMessage(data.message);
-      setHistory(h => [{ content: data.message, type: config.messageType, createdAt: new Date().toISOString() }, ...h]);
+      setHistory(h => [newMsg, ...h]);
+      setShowHistory(true);
       toast.success('Message generated!');
     } catch (e) { toast.error(e.message); }
     finally { setLoading(false); }
+  };
+
+  const addManual = async () => {
+    if (!manualText.trim()) return;
+    setAddingManual(true);
+    try {
+      await interviewApi.addOutreachMsg(candidate.id, manualText.trim(), manualType);
+      const newMsg = { content: manualText.trim(), type: manualType, createdAt: new Date().toISOString() };
+      setHistory(h => [...h, newMsg]);
+      setManualText('');
+      setShowManual(false);
+      setShowHistory(true);
+      toast.success('Message added');
+    } catch (e) { toast.error(e.message); }
+    finally { setAddingManual(false); }
+  };
+
+  const startEdit = (i) => { setEditingIdx(i); setEditText(history[i].content); };
+  const cancelEdit = () => { setEditingIdx(null); setEditText(''); };
+
+  const saveEdit = async (i) => {
+    if (!editText.trim()) return;
+    setSaving(true);
+    try {
+      await interviewApi.editOutreachMsg(candidate.id, i, editText.trim());
+      setHistory(h => h.map((m, idx) => idx === i ? { ...m, content: editText.trim() } : m));
+      setEditingIdx(null);
+      toast.success('Message updated');
+    } catch (e) { toast.error(e.message); }
+    finally { setSaving(false); }
   };
 
   const deleteMsg = async (i) => {
@@ -216,8 +260,9 @@ function OutreachTab({ candidate }) {
 
   return (
     <div>
+      {/* Generate panel */}
       <div className="card mb-16">
-        <div className="card-title">Configure Outreach</div>
+        <div className="card-title">Generate Outreach</div>
         <div className="grid-2">
           <div className="form-group">
             <label className="form-label">Role</label>
@@ -250,11 +295,43 @@ function OutreachTab({ candidate }) {
           <textarea className="form-textarea" placeholder="Additional context or instructions..."
             value={config.customInstructions} onChange={e => set('customInstructions', e.target.value)} style={{ minHeight: 60 }} />
         </div>
-        <button className="btn btn-primary" onClick={generate} disabled={loading}>
-          {loading ? <><span className="spinner" style={{ width: 14, height: 14 }} /> Generating...</> : '✉ Generate Message'}
-        </button>
+        <div className="flex gap-8">
+          <button className="btn btn-primary" onClick={generate} disabled={loading}>
+            {loading ? <><span className="spinner" style={{ width: 14, height: 14 }} /> Generating...</> : '✉ Generate Message'}
+          </button>
+          <button className="btn btn-secondary" onClick={() => setShowManual(v => !v)}>
+            ✎ Write Manually
+          </button>
+        </div>
       </div>
 
+      {/* Manual write panel */}
+      {showManual && (
+        <div className="card mb-16" style={{ border: '1px solid var(--border-light)' }}>
+          <div className="card-title" style={{ marginBottom: 12 }}>Write Message Manually</div>
+          <div className="form-group">
+            <label className="form-label">Type</label>
+            <select className="form-select" value={manualType} onChange={e => setManualType(e.target.value)}>
+              <option value="manual">Manual</option>
+              {MESSAGE_TYPES.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+            </select>
+          </div>
+          <div className="form-group">
+            <label className="form-label">Message</label>
+            <textarea className="form-textarea" style={{ minHeight: 140 }}
+              placeholder="Write your outreach message here..."
+              value={manualText} onChange={e => setManualText(e.target.value)} />
+          </div>
+          <div className="flex gap-8">
+            <button className="btn btn-primary" onClick={addManual} disabled={addingManual || !manualText.trim()}>
+              {addingManual ? <><span className="spinner" style={{ width: 14, height: 14 }} /> Saving...</> : '+ Add Message'}
+            </button>
+            <button className="btn btn-secondary" onClick={() => { setShowManual(false); setManualText(''); }}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {/* Generated message preview */}
       {message && (
         <div className="card mb-16">
           <div className="flex items-center justify-between mb-16">
@@ -268,6 +345,7 @@ function OutreachTab({ candidate }) {
         </div>
       )}
 
+      {/* History */}
       {history.length > 0 && (
         <div className="card">
           <div className="flex items-center justify-between mb-12" style={{ cursor: 'pointer' }} onClick={() => setShowHistory(h => !h)}>
@@ -275,12 +353,34 @@ function OutreachTab({ candidate }) {
             <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>{showHistory ? '▲ Hide' : '▼ Show'}</span>
           </div>
           {showHistory && history.map((m, i) => (
-            <div key={i} style={{ borderTop: i > 0 ? '1px solid var(--border)' : undefined, paddingTop: i > 0 ? 12 : 0, marginTop: i > 0 ? 12 : 0 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{m.type} · {new Date(m.createdAt).toLocaleString()}</div>
-                <button onClick={() => deleteMsg(i)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--error)', fontSize: 14 }} title="Delete">✕</button>
+            <div key={i} style={{ borderTop: i > 0 ? '1px solid var(--border)' : undefined, paddingTop: i > 0 ? 14 : 0, marginTop: i > 0 ? 14 : 0 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                  {m.type} · {new Date(m.createdAt).toLocaleString()}
+                  {m.editedAt && <span style={{ marginLeft: 6, color: 'var(--text-muted)' }}>(edited)</span>}
+                </div>
+                <div className="flex gap-8">
+                  {editingIdx === i ? (
+                    <>
+                      <button className="btn btn-primary btn-sm" onClick={() => saveEdit(i)} disabled={saving}>
+                        {saving ? <span className="spinner" style={{ width: 12, height: 12 }} /> : 'Save'}
+                      </button>
+                      <button className="btn btn-secondary btn-sm" onClick={cancelEdit}>Cancel</button>
+                    </>
+                  ) : (
+                    <>
+                      <button className="btn btn-secondary btn-sm" onClick={() => startEdit(i)}>✎ Edit</button>
+                      <button onClick={() => deleteMsg(i)} className="btn btn-danger btn-sm">✕</button>
+                    </>
+                  )}
+                </div>
               </div>
-              <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'DM Sans, sans-serif', fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>{m.content}</pre>
+              {editingIdx === i ? (
+                <textarea className="form-textarea" style={{ minHeight: 120, fontSize: 13 }}
+                  value={editText} onChange={e => setEditText(e.target.value)} autoFocus />
+              ) : (
+                <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'DM Sans, sans-serif', fontSize: 12.5, color: 'var(--text-secondary)', lineHeight: 1.7 }}>{m.content}</pre>
+              )}
             </div>
           ))}
         </div>
@@ -289,6 +389,7 @@ function OutreachTab({ candidate }) {
   );
 }
 
+// ── Conversation Tab ──────────────────────────────────────────────────────────
 // ── Conversation Tab ──────────────────────────────────────────────────────────
 function ConversationTab({ candidate, appliedScenario }) {
   const { roles, recruiters } = useContext(AppContext);
@@ -313,6 +414,17 @@ function ConversationTab({ candidate, appliedScenario }) {
   const [showInstructions, setShowInstructions] = useState(false);
   const bottomRef = useRef(null);
   const imageInputRef = useRef(null);
+
+  // Manual message insertion
+  const [showManual,   setShowManual]   = useState(false);
+  const [manualRole,   setManualRole]   = useState('user');
+  const [manualText,   setManualText]   = useState('');
+  const [addingManual, setAddingManual] = useState(false);
+
+  // Inline editing
+  const [editingIdx, setEditingIdx] = useState(null);
+  const [editText,   setEditText]   = useState('');
+  const [savingEdit, setSavingEdit] = useState(false);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -360,6 +472,37 @@ function ConversationTab({ candidate, appliedScenario }) {
       imageMimeType: m.imageMimeType || undefined,
     })),
   });
+
+  const addManualMessage = async () => {
+    if (!manualText.trim()) return;
+    setAddingManual(true);
+    try {
+      await interviewApi.addConversationMsg(candidate.id, manualRole, manualText.trim());
+      setHistory(h => [...h, {
+        role: manualRole, content: manualText.trim(),
+        timestamp: new Date().toISOString(),
+      }]);
+      setManualText('');
+      setShowManual(false);
+      toast.success('Message added');
+    } catch (e) { toast.error(e.message); }
+    finally { setAddingManual(false); }
+  };
+
+  const startEdit = (i) => { setEditingIdx(i); setEditText(history[i].content); };
+  const cancelEdit = () => { setEditingIdx(null); setEditText(''); };
+
+  const saveEdit = async (i) => {
+    if (!editText.trim()) return;
+    setSavingEdit(true);
+    try {
+      await interviewApi.editConversationMsg(candidate.id, i, editText.trim());
+      setHistory(h => h.map((m, idx) => idx === i ? { ...m, content: editText.trim() } : m));
+      setEditingIdx(null);
+      toast.success('Message updated');
+    } catch (e) { toast.error(e.message); }
+    finally { setSavingEdit(false); }
+  };
 
   const send = async () => {
     const userMsg = input.trim();
@@ -483,6 +626,9 @@ function ConversationTab({ candidate, appliedScenario }) {
             <button className="btn btn-secondary btn-sm" onClick={() => setShowInstructions(v => !v)} style={{ whiteSpace: 'nowrap' }}>
               {showInstructions ? '▲ Instructions' : '✎ Instructions'}
             </button>
+            <button className="btn btn-secondary btn-sm" onClick={() => setShowManual(v => !v)} style={{ whiteSpace: 'nowrap' }}>
+              + Manual Message
+            </button>
             {hasLastAssistant && (
               <button
                 className="btn btn-secondary btn-sm"
@@ -516,6 +662,42 @@ function ConversationTab({ candidate, appliedScenario }) {
         )}
       </div>
 
+      {/* Manual message insertion panel */}
+      {showManual && (
+        <div className="card mb-16" style={{ border: '1px solid var(--border-light)' }}>
+          <div className="card-title" style={{ marginBottom: 12 }}>Insert Message Manually</div>
+          <div className="form-group">
+            <label className="form-label">Who is speaking?</label>
+            <div className="flex gap-8">
+              <button
+                className={`btn btn-sm ${manualRole === 'user' ? 'btn-primary' : 'btn-secondary'}`}
+                onClick={() => setManualRole('user')}
+              >
+                👤 {candidate.fullName || 'Candidate'} (Candidate)
+              </button>
+              <button
+                className={`btn btn-sm ${manualRole === 'assistant' ? 'btn-primary' : 'btn-secondary'}`}
+                onClick={() => setManualRole('assistant')}
+              >
+                🎙 You (Recruiter)
+              </button>
+            </div>
+          </div>
+          <div className="form-group">
+            <label className="form-label">Message</label>
+            <textarea className="form-textarea" style={{ minHeight: 100 }}
+              placeholder={manualRole === 'user' ? `Type what ${candidate.fullName || 'the candidate'} said...` : 'Type your recruiter message...'}
+              value={manualText} onChange={e => setManualText(e.target.value)} />
+          </div>
+          <div className="flex gap-8">
+            <button className="btn btn-primary" onClick={addManualMessage} disabled={addingManual || !manualText.trim()}>
+              {addingManual ? <><span className="spinner" style={{ width: 14, height: 14 }} /> Adding...</> : '+ Add to Conversation'}
+            </button>
+            <button className="btn btn-secondary" onClick={() => { setShowManual(false); setManualText(''); }}>Cancel</button>
+          </div>
+        </div>
+      )}
+
       {/* Chat window */}
       <div className="card" style={{ minHeight: 300 }}>
         {history.length === 0 ? (
@@ -528,20 +710,17 @@ function ConversationTab({ candidate, appliedScenario }) {
           <div style={{ marginBottom: 16 }}>
             {history.map((msg, i) => (
               <div key={i} className={`conversation-bubble bubble-${msg.role}`} style={{ position: 'relative' }}>
-                <button
-                  onClick={() => deleteMsg(i)}
-                  style={{
-                    position: 'absolute', top: 8, right: 8,
-                    background: 'none', border: 'none', cursor: 'pointer',
-                    color: 'var(--text-muted)', fontSize: 12, lineHeight: 1,
-                    opacity: 0.4, transition: 'opacity 0.15s',
-                  }}
-                  onMouseEnter={e => e.target.style.opacity = 1}
-                  onMouseLeave={e => e.target.style.opacity = 0.4}
-                  title="Delete message"
-                >✕</button>
+                {/* Action buttons */}
+                <div style={{ position: 'absolute', top: 8, right: 8, display: 'flex', gap: 4 }}>
+                  {editingIdx !== i && (
+                    <button onClick={() => startEdit(i)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: 11, opacity: 0.5 }}
+                      onMouseEnter={e => e.target.style.opacity = 1} onMouseLeave={e => e.target.style.opacity = 0.5} title="Edit message">✎</button>
+                  )}
+                  <button onClick={() => deleteMsg(i)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', fontSize: 12, opacity: 0.4 }}
+                    onMouseEnter={e => e.target.style.opacity = 1} onMouseLeave={e => e.target.style.opacity = 0.4} title="Delete message">✕</button>
+                </div>
 
-                <div className="bubble-label" style={{ display: 'flex', justifyContent: 'space-between', paddingRight: 20 }}>
+                <div className="bubble-label" style={{ display: 'flex', justifyContent: 'space-between', paddingRight: 44 }}>
                   <span>
                     {msg.role === 'user'
                       ? <>
@@ -561,14 +740,26 @@ function ConversationTab({ candidate, appliedScenario }) {
 
                 {msg.imageBase64 && (
                   <div style={{ marginBottom: 6 }}>
-                    <img
-                      src={`data:${msg.imageMimeType || 'image/jpeg'};base64,${msg.imageBase64}`}
-                      alt="attachment"
-                      style={{ maxWidth: '100%', maxHeight: 240, borderRadius: 8, border: '1px solid var(--border)' }}
-                    />
+                    <img src={`data:${msg.imageMimeType || 'image/jpeg'};base64,${msg.imageBase64}`}
+                      alt="attachment" style={{ maxWidth: '100%', maxHeight: 240, borderRadius: 8, border: '1px solid var(--border)' }} />
                   </div>
                 )}
-                {msg.content && <div>{msg.content}</div>}
+
+                {/* Inline edit or display */}
+                {editingIdx === i ? (
+                  <div style={{ marginTop: 6 }}>
+                    <textarea className="form-textarea" style={{ minHeight: 80, fontSize: 13, marginBottom: 8 }}
+                      value={editText} onChange={e => setEditText(e.target.value)} autoFocus />
+                    <div className="flex gap-8">
+                      <button className="btn btn-primary btn-sm" onClick={() => saveEdit(i)} disabled={savingEdit}>
+                        {savingEdit ? <span className="spinner" style={{ width: 12, height: 12 }} /> : 'Save'}
+                      </button>
+                      <button className="btn btn-secondary btn-sm" onClick={cancelEdit}>Cancel</button>
+                    </div>
+                  </div>
+                ) : (
+                  msg.content && <div>{msg.content}</div>
+                )}
               </div>
             ))}
             {(loading || regenerating) && (
