@@ -2,29 +2,62 @@ const express = require('express');
 const router  = express.Router();
 const User    = require('../models/User');
 const { signToken, requireAuth, requireAdmin } = require('../utils/auth');
-const { isConnected } = require('../utils/firebase');
+const { isConnected, getInitError } = require('../utils/firebase');
 
 // POST /api/auth/login
 router.post('/login', async (req, res) => {
+  // Step 1 — DB check
+  if (!isConnected()) {
+    return res.status(503).json({
+      error: 'Database not connected.',
+      detail: getInitError() || 'FIREBASE_SERVICE_ACCOUNT env var may be missing or invalid.',
+      step: 'firebase_init',
+    });
+  }
+
+  const { username, password } = req.body;
+
+  // Step 2 — input check
+  if (!username || !password) {
+    return res.status(400).json({ error: 'Username and password required', step: 'validation' });
+  }
+
+  // Step 3 — ensure admin exists (lazy, non-blocking)
   try {
-    if (!isConnected()) {
-      return res.status(503).json({ error: 'Database not connected. Check your Firebase environment variable.' });
-    }
+    await User.ensureAdminExists();
+  } catch (e) {
+    console.error('[login] ensureAdminExists failed:', e.message);
+    // Non-fatal — continue login attempt
+  }
 
-    const { username, password } = req.body;
-    if (!username || !password) {
-      return res.status(400).json({ error: 'Username and password required' });
-    }
+  // Step 4 — find user
+  let user;
+  try {
+    user = await User.findByUsername(username);
+  } catch (e) {
+    console.error('[login] findByUsername failed:', e.message);
+    return res.status(500).json({ error: 'Failed to query users: ' + e.message, step: 'find_user' });
+  }
 
-    // Lazy admin creation — ensures admin exists even on first cold start
-    await User.ensureAdminExists().catch(() => {});
+  if (!user) {
+    return res.status(401).json({ error: 'Invalid username or password', step: 'not_found' });
+  }
 
-    const user = await User.findByUsername(username);
-    if (!user) return res.status(401).json({ error: 'Invalid username or password' });
+  // Step 5 — verify password
+  let valid;
+  try {
+    valid = await User.verifyPassword(user, password);
+  } catch (e) {
+    console.error('[login] verifyPassword failed:', e.message);
+    return res.status(500).json({ error: 'Password verification failed: ' + e.message, step: 'verify_password' });
+  }
 
-    const valid = await User.verifyPassword(user, password);
-    if (!valid) return res.status(401).json({ error: 'Invalid username or password' });
+  if (!valid) {
+    return res.status(401).json({ error: 'Invalid username or password', step: 'wrong_password' });
+  }
 
+  // Step 6 — sign token
+  try {
     const { passwordHash, ...safe } = user;
     const token = signToken({
       id:          user.id,
@@ -32,10 +65,10 @@ router.post('/login', async (req, res) => {
       displayName: user.displayName,
       isAdmin:     user.isAdmin,
     });
-    res.json({ token, user: safe });
-  } catch (err) {
-    console.error('[Auth/login]', err.message);
-    res.status(500).json({ error: err.message });
+    return res.json({ token, user: safe });
+  } catch (e) {
+    console.error('[login] signToken failed:', e.message);
+    return res.status(500).json({ error: 'Token signing failed: ' + e.message, step: 'sign_token' });
   }
 });
 
