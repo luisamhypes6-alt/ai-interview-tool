@@ -4,7 +4,6 @@ const PDFDocument = require('pdfkit');
 const Candidate = require('../models/Candidate');
 const { getOpenAIClient, getKnowledgeContext, getCustomInstructions, getCompanyScenario } = require('../utils/openai');
 const { requireAuth } = require('../utils/auth');
-const Candidate = require('../models/Candidate');
 
 router.use(requireAuth);
 
@@ -303,7 +302,6 @@ router.post('/recommend-role', async (req, res) => {
     let text = resumeText || '';
     if (!text && candidateId) {
       try {
-        const Candidate = require('../models/Candidate');
         const candidate = await Candidate.findById(candidateId);
         if (candidate && Candidate.canAccess(candidate, req.user)) text = candidate.resumeText || '';
       } catch (_) {}
